@@ -1,0 +1,517 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{parskip}
+
+\hypersetup{
+	colorlinks=true,
+	linkcolor=blue,
+	urlcolor=blue,
+}
+
+\lstdefinelanguage{Lean}{
+	keywords={theorem, lemma, def, noncomputable, by, have, intro, exact, apply, unfold, rw, simp, rfl, from, let, fun, with, match, using, set, calc, constructor, rcases},
+	keywordstyle=\color{blue}\bfseries,
+	comment=[l]{--},
+	commentstyle=\color{gray}\itshape,
+	morestring=[b]",
+	stringstyle=\color{red},
+	basicstyle=\ttfamily\small,
+	breaklines=true,
+	showstringspaces=false,
+}
+
+\lstset{
+	language=Lean,
+	basicstyle=\ttfamily\small,
+	frame=single,
+	breaklines=true,
+	backgroundcolor=\color{gray!5},
+}
+
+\title{FMCG 4.0 Formal Verification:\\ Complete Theorem Reference\\[0.3em]
+	\large Lean 4 / Mathlib Formalisation --- 14 Machine-Checked Theorems}
+\author{Alexandre Alves da Silva \\ UCL Computer Science}
+\date{\today}
+
+\begin{document}
+	
+	\maketitle
+	
+	\begin{abstract}
+		\noindent This document presents the complete set of fourteen machine-checked theorems formalising the mathematical properties of the Signal-to-Shelf (StS) metric and Coupling Benefit Ratio (CBR), as defined in the FMCG 4.0 framework. All proofs were developed and verified in Lean 4 using the Mathlib library, with zero admitted proofs (\texttt{sorry}) and zero unresolved proof obligations. The complete formalisation is publicly available at:
+		\url{https://github.com/Alex-Alves3/FMCG40-Lean}
+	\end{abstract}
+	
+	\section*{Core Definitions}
+	
+	\textbf{Signal-to-Shelf (StS)}
+	\begin{equation}
+		\text{StS}(R_0, \lambda, t_0, t) = \frac{R_0 \cdot e^{-\lambda t}}{t + t_0}
+	\end{equation}
+	
+	\textbf{Market Response}
+	\begin{equation}
+		\text{MarketResponse}(R_0, \lambda, t) = R_0 \cdot e^{-\lambda t}
+	\end{equation}
+	
+	\textbf{Temporal Decay}
+	\begin{equation}
+		D(\lambda, t) = e^{-\lambda t}
+	\end{equation}
+	
+	\textbf{Integrated / Sequential Intrinsic Quality}
+	\begin{align}
+		R_{0,\text{integrated}} &= R_{\text{base}} + R_{\text{prod}} + R_{\text{mark}} + R_{\text{coup}} \\
+		R_{0,\text{sequential}} &= R_{\text{base}} + R_{\text{prod}} + R_{\text{mark}}
+	\end{align}
+	
+	\textbf{Coupling Benefit Ratio (CBR)}
+	\begin{equation}
+		\text{CBR} = \frac{\text{StS}(R_{0,\text{integrated}}, \lambda, t_0, t_{\text{int}})}{\text{StS}(R_{0,\text{sequential}}, \lambda, t_0, t_{\text{seq}})}
+	\end{equation}
+	
+	\textbf{Coupling Contribution Percentage}
+	\begin{equation}
+		\eta_{\text{coup}} = \frac{R_{\text{coup}}}{R_{0,\text{integrated}}}
+	\end{equation}
+	
+	\newpage
+	
+	\section{StS Denominator Positivity}
+	
+	\textbf{Statement.} For $t_0 > 0$ and $t \geq 0$, the StS denominator is strictly positive.
+	\begin{equation}
+		t_0 > 0,\ t \geq 0 \implies t + t_0 > 0
+	\end{equation}
+	
+	\begin{lstlisting}
+		theorem StS_denominator_pos (t0 t : R) (ht0 : t0 > 0) (ht : t >= 0) :
+		t + t0 > 0 := by
+		linarith
+	\end{lstlisting}
+	
+	\noindent\textbf{Significance.} The foundational well-definedness fact --- establishes that StS never divides by zero under the stated parameter conditions.
+	
+	\section{StS Well-Definedness}
+	
+	\textbf{Statement.} The StS denominator is never exactly zero.
+	\begin{equation}
+		t_0 > 0,\ t \geq 0 \implies t + t_0 \neq 0
+	\end{equation}
+	
+	\begin{lstlisting}
+		theorem StS_well_defined (t0 t : R) (ht0 : t0 > 0) (ht : t >= 0) :
+		t + t0 <> 0 := by
+		have h := StS_denominator_pos t0 t ht0 ht
+		linarith
+	\end{lstlisting}
+	
+	\noindent\textbf{Significance.} Direct corollary of Theorem 1, stated in the form needed for division-safety arguments elsewhere.
+	
+	\section{Maximum StS Value at $t = 0$}
+	
+	\textbf{Statement.} At $t=0$, StS reduces exactly to $R_0/t_0$.
+	\begin{equation}
+		\text{StS}(R_0, \lambda, t_0, 0) = \frac{R_0}{t_0}
+	\end{equation}
+	
+	\begin{lstlisting}
+		theorem StS_max_value (R0 lam t0 : R) (ht0 : t0 > 0) :
+		StS R0 lam t0 0 = R0 / t0 := by
+		simp [StS, Real.exp_zero]
+	\end{lstlisting}
+	
+	\noindent\textbf{Significance.} Confirms the peak efficiency value the paper's prose asserts --- immediate deployment yields exactly $R_0/t_0$, with no decay term reducing it.
+	
+	\section{Market Response Positivity}
+	
+	\textbf{Statement.} For $R_0 > 0$, the Market Response function is strictly positive at every $t$.
+	\begin{equation}
+		R_0 > 0 \implies R_0 \cdot e^{-\lambda t} > 0
+	\end{equation}
+	
+	\begin{lstlisting}
+		theorem MarketResponse_pos (R0 lam t : R) (hR0_pos : R0 > 0) :
+		MarketResponse R0 lam t > 0 := by
+		unfold MarketResponse
+		apply mul_pos hR0_pos
+		exact Real.exp_pos _
+	\end{lstlisting}
+	
+	\noindent\textbf{Significance.} Establishes that market response never becomes zero or negative for a strategy with positive intrinsic quality --- a basic sanity property of the model.
+	
+	\section{Temporal Decay Bounds}
+	
+	\textbf{Statement.} For $t \geq 0$ and $\lambda > 0$, the decay function stays strictly between 0 and 1.
+	\begin{equation}
+		0 < e^{-\lambda t} \leq 1
+	\end{equation}
+	
+	\begin{lstlisting}
+		theorem TemporalDecay_bounds (lam t : R) (ht : t >= 0) (hlam : lam > 0) :
+		0 < TemporalDecay lam t /\ TemporalDecay lam t <= 1 := by
+		constructor
+		. unfold TemporalDecay; exact Real.exp_pos _
+		. unfold TemporalDecay
+		rw [<- Real.exp_zero]
+		apply Real.exp_le_exp.mpr
+		nlinarith
+	\end{lstlisting}
+	
+	\noindent\textbf{Significance.} Confirms the decay function behaves as a genuine ``fraction of opportunity remaining'' --- never exceeding 100\%, never reaching or going below 0\%.
+	
+	\section{Trend Half-Life Identity}
+	
+	\textbf{Statement.} The formula $t_{1/2} = \ln(2)/\lambda$ correctly gives the point at which decay reaches exactly one-half.
+	\begin{equation}
+		D\left(\lambda, \frac{\ln 2}{\lambda}\right) = \frac{1}{2}
+	\end{equation}
+	
+	\begin{lstlisting}
+		theorem trend_half_life (lam : R) (hlam : lam > 0) :
+		TemporalDecay lam (Real.log 2 / lam) = 1 / 2 := by
+		unfold TemporalDecay
+		have hne : lam <> 0 := ne_of_gt hlam
+		rw [show -lam * (Real.log 2 / lam) = -Real.log 2 by field_simp]
+		rw [Real.exp_neg, Real.exp_log (by norm_num : (2:R) > 0)]
+		norm_num
+	\end{lstlisting}
+	
+	\noindent\textbf{Significance.} Confirms the half-life formula used throughout the paper's parameter estimation discussion is exact, not approximate.
+	
+	\section{Uniqueness of Exponential Decay}
+	
+	\textbf{Statement.} Given $D(0) = 1$ and the derivative condition $D'(t) = -\lambda D(t)$ at every $t \geq 0$, the function $D$ is uniquely determined to be $D(t) = e^{-\lambda t}$.
+	\begin{equation}
+		D(0)=1,\ \forall t \geq 0,\ D'(t) = -\lambda D(t) \implies \forall t \geq 0,\ D(t) = e^{-\lambda t}
+	\end{equation}
+	
+	\begin{lstlisting}
+		theorem decay_uniqueness_given_derivative_at_zero
+		(D : R -> R)
+		(hD0 : D 0 = 1)
+		(hDpos : forall t >= 0, D t > 0)
+		(hDfunc : forall t s, t >= 0 -> s >= 0 -> D (t + s) = D t * D s)
+		(lam : R)
+		(hDderiv_all : forall t >= 0, HasDerivAt D (-lam * D t) t) :
+		forall t >= 0, D t = Real.exp (-lam * t) := by
+		intro t ht
+		set E : R -> R := fun s => D s * Real.exp (lam * s) with hE_def
+		have hEderiv_pt : forall s >= 0, HasDerivAt E 0 s := by
+		intro s hs0
+		have hs1 : HasDerivAt (fun u : R => Real.exp (lam * u)) (Real.exp (lam * s) * lam) s := by
+		have hlin : HasDerivAt (fun u : R => lam * u) lam s := by
+		simpa using (hasDerivAt_id s).const_mul lam
+		simpa [mul_comm] using hlin.exp
+		have h2 := (hDderiv_all s hs0).mul hs1
+		have heq : -lam * D s * Real.exp (lam * s) + D s * (Real.exp (lam * s) * lam) = 0 := by
+		ring
+		rw [<- heq]
+		exact h2
+		have hEderiv_within : forall s in Set.Ico (0:R) t, HasDerivWithinAt E 0 (Set.Ici s) s :=
+		fun s hs => (hEderiv_pt s hs.1).hasDerivWithinAt
+		have hEcont : ContinuousOn E (Set.Icc 0 t) :=
+		HasDerivAt.continuousOn (fun x hx => hEderiv_pt x hx.1)
+		have hbound : forall x in Set.Ico (0:R) t, ||(0:R)|| <= (0:R) := by
+		intro x _; simp
+		have hkey := norm_image_sub_le_of_norm_deriv_right_le_segment
+		(f := E) (f' := fun _ => (0:R)) (a := (0:R)) (b := t) (C := (0:R))
+		hEcont hEderiv_within hbound
+		have hEt : E t = E 0 := by
+		have h0 : ||E t - E 0|| <= 0 * (t - 0) := hkey t (Set.right_mem_Icc.mpr ht)
+		have h0' : E t - E 0 = 0 := by
+		have h1 : ||E t - E 0|| <= 0 := by linarith
+		exact norm_le_zero_iff.mp h1
+		linarith [h0']
+		have hE0 : E 0 = 1 := by simp [hE_def, hD0]
+		have hEt1 : E t = 1 := by rw [hEt, hE0]
+		have hkey2 : D t * Real.exp (lam * t) = 1 := hEt1
+		have hExp_pos : Real.exp (lam * t) > 0 := Real.exp_pos _
+		have htarget : D t * Real.exp (lam * t) = Real.exp (-lam * t) * Real.exp (lam * t) := by
+		rw [hkey2]
+		rw [<- Real.exp_add]
+		have : -lam * t + lam * t = 0 := by ring
+		rw [this, Real.exp_zero]
+		exact mul_right_cancel0 (ne_of_gt hExp_pos) htarget
+	\end{lstlisting}
+	
+	\noindent\textbf{Significance.} Closes the gap between the paper's prose claim (``the unique continuous function satisfying the memoryless property'') and formal verification. This proof establishes uniqueness under an \emph{explicit differentiability hypothesis} --- a genuinely honest, if narrower, claim than the fully general classical theorem (which derives differentiability from continuity plus the functional equation alone, and remains unformalised here). Proof strategy: construct the auxiliary function $E(s) = D(s)e^{\lambda s}$, show it has zero derivative everywhere on $[0,t]$, invoke a mean-value-theorem-based constancy result to conclude $E$ is constant on the interval, then solve algebraically for $D(t)$.
+	
+	\section{Coupling Contribution Bound}
+	
+	\textbf{Statement.} Given $R_{\text{coup}} \geq 0$ and $R_{\text{base}} + R_{\text{prod}} + R_{\text{mark}} > 0$, the coupling contribution percentage lies strictly in $[0, 1)$.
+	\begin{equation}
+		0 \leq \eta_{\text{coup}} < 1
+	\end{equation}
+	
+	\begin{lstlisting}
+		theorem eta_coup_bounds
+		(R_base R_prod R_mark R_coup : R)
+		(hR_coup : R_coup >= 0)
+		(hR_base_pos : R_base + R_prod + R_mark > 0) :
+		0 <= eta_coup R_base R_prod R_mark R_coup /\
+		eta_coup R_base R_prod R_mark R_coup < 1 := by
+		have hden_pos : R0_integrated R_base R_prod R_mark R_coup > 0 := by
+		unfold R0_integrated
+		linarith
+		unfold eta_coup
+		constructor
+		. exact div_nonneg hR_coup (le_of_lt hden_pos)
+		. rw [div_lt_one hden_pos]
+		unfold R0_integrated
+		linarith
+	\end{lstlisting}
+	
+	\noindent\textbf{Significance.} Confirms $\eta_{\text{coup}}$ behaves as a valid percentage --- it can never exceed 100\% of the total strategy quality, and is never negative.
+	
+	\section{Decay Rate Estimator Positivity}
+	
+	\textbf{Statement.} Given two trend strength measurements $TS_1 > TS_2 > 0$ at times $t_1 < t_2$, the estimated decay rate is positive.
+	\begin{equation}
+		TS_1 > TS_2 > 0,\ t_1 < t_2 \implies \frac{\ln(TS_1/TS_2)}{t_2 - t_1} > 0
+	\end{equation}
+	
+	\begin{lstlisting}
+		theorem decay_rate_estimator_well_defined
+		(TS1 TS2 t1 t2 : R)
+		(hTS1 : TS1 > 0) (hTS2 : TS2 > 0)
+		(hTS_decay : TS1 > TS2)
+		(ht_order : t1 < t2) :
+		Real.log (TS1 / TS2) / (t2 - t1) > 0 := by
+		apply div_pos
+		. apply Real.log_pos
+		rw [lt_div_iff0 hTS2]
+		linarith
+		. linarith
+	\end{lstlisting}
+	
+	\noindent\textbf{Significance.} Validates the parameter estimation procedure described in the paper --- a decaying trend (measured strength decreasing over time) always produces a sensible, positive $\lambda$ estimate.
+	
+	\section{Strict Monotonicity of StS}
+	
+	\textbf{Statement.} For $R_0 > 0$, $\lambda > 0$, $t_0 > 0$, the StS function is strictly decreasing on $[0, \infty)$.
+	\begin{equation}
+		\text{StS}(R_0, \lambda, t_0, \cdot) \text{ is strictly decreasing on } [0,\infty)
+	\end{equation}
+	
+	\begin{lstlisting}
+		theorem StS_strictly_decreasing
+		(R0 lam t0 : R) (hR0_pos : R0 > 0) (hlam : lam > 0) (ht0 : t0 > 0) :
+		StrictAntiOn (StS R0 lam t0) (Ici 0) := by
+		have hderiv : forall t in Ici (0:R),
+		HasDerivAt (StS R0 lam t0)
+		(R0 * (Real.exp (-lam * t) * (-lam * (t + t0) - 1)) / (t + t0)^2) t := by
+		intro t ht
+		have ht' : t >= 0 := ht
+		have hnum : HasDerivAt (fun s : R => R0 * Real.exp (-lam * s))
+		(R0 * (Real.exp (-lam * t) * (-lam))) t := by
+		have h1 : HasDerivAt (fun s : R => -lam * s) (-lam) t := by
+		simpa using (hasDerivAt_id t).const_mul (-lam)
+		have h2 : HasDerivAt (fun s : R => Real.exp (-lam * s))
+		(Real.exp (-lam * t) * (-lam)) t := h1.exp
+		simpa [mul_assoc] using h2.const_mul R0
+		have hden : HasDerivAt (fun s : R => s + t0) 1 t := by
+		simpa using (hasDerivAt_id t).add_const t0
+		have hdenne : (t + t0) <> 0 := ne_of_gt (StS_denominator_pos t0 t ht0 ht')
+		have hcomb := hnum.div hden hdenne
+		have hfun : StS R0 lam t0 = (fun s : R => R0 * Real.exp (-lam * s)) / (fun s : R => s + t0) := by
+		funext s
+		simp [StS, Pi.div_apply]
+		rw [hfun]
+		have heq : R0 * (Real.exp (-lam * t) * (-lam * (t + t0) - 1)) / (t + t0) ^ 2
+		= (R0 * (Real.exp (-lam * t) * (-lam)) * (t + t0) - R0 * Real.exp (-lam * t) * 1)
+		/ (t + t0) ^ 2 := by ring
+		rw [heq]
+		exact hcomb
+		apply strictAntiOn_of_deriv_neg (convex_Ici (0:R))
+		. apply ContinuousOn.div
+		. exact (continuous_const.mul (Real.continuous_exp.comp
+		(continuous_const.mul continuous_id))).continuousOn
+		. exact (continuous_id.add continuous_const).continuousOn
+		. intro t ht
+		exact ne_of_gt (StS_denominator_pos t0 t ht0 ht)
+		. intro t ht
+		rw [interior_Ici] at ht
+		have ht' : t >= 0 := le_of_lt ht
+		have hd := (hderiv t ht').deriv
+		rw [hd]
+		have hexp_pos : Real.exp (-lam * t) > 0 := Real.exp_pos _
+		have hden_pos : (t + t0)^2 > 0 := by positivity
+		have hfactor_neg : (-lam * (t + t0) - 1) < 0 := by
+		have hpos : lam * (t + t0) > 0 := mul_pos hlam (by linarith)
+		linarith
+		have hnum_neg : R0 * (Real.exp (-lam * t) * (-lam * (t + t0) - 1)) < 0 := by
+		apply mul_neg_of_pos_of_neg hR0_pos
+		exact mul_neg_of_pos_of_neg hexp_pos hfactor_neg
+		exact div_neg_of_neg_of_pos hnum_neg hden_pos
+	\end{lstlisting}
+	
+	\noindent\textbf{Significance.} The formal justification for ``acting faster is always better'' --- proved via direct computation of the derivative and showing it is negative everywhere. This is the mathematical backbone of the paper's central speed argument.
+	
+	\section{Maximum StS at $t = 0$ (Global)}
+	
+	\textbf{Statement.} The maximum value of StS over all $t \geq 0$ occurs at $t = 0$.
+	\begin{equation}
+		\forall t \geq 0,\ \text{StS}(R_0,\lambda,t_0,t) \leq \text{StS}(R_0,\lambda,t_0,0)
+	\end{equation}
+	
+	\begin{lstlisting}
+		theorem StS_max_at_zero
+		(R0 lam t0 t : R)
+		(hR0_pos : R0 > 0) (hlam : lam > 0) (ht0 : t0 > 0) (ht : t >= 0) :
+		StS R0 lam t0 t <= StS R0 lam t0 0 := by
+		have hanti : AntitoneOn (StS R0 lam t0) (Ici 0) :=
+		(StS_strictly_decreasing R0 lam t0 hR0_pos hlam ht0).antitoneOn
+		exact hanti (mem_Ici.mpr (le_refl 0)) (mem_Ici.mpr ht) ht
+	\end{lstlisting}
+	
+	\noindent\textbf{Significance.} Direct consequence of Theorem 10 --- confirms the maximum achievable efficiency $R_0/t_0$ (Theorem 3) is genuinely the global maximum, not merely a local one.
+	
+	\section{Sufficient Conditions for CBR $\geq 1$}
+	
+	\textbf{Statement.} Given $t_{\text{int}} \geq 0$, $t_{\text{seq}} \geq 0$, $t_{\text{int}} \leq t_{\text{seq}}$, $R_{\text{coup}} > 0$, and $R_{\text{base}}+R_{\text{prod}}+R_{\text{mark}} > 0$, the Coupling Benefit Ratio is at least 1.
+	\begin{equation}
+		\text{CBR} \geq 1
+	\end{equation}
+	
+	\begin{lstlisting}
+		theorem CBR_geq_one
+		(R_base R_prod R_mark R_coup lam t0 t_int t_seq : R)
+		(hlam : lam > 0) (ht0 : t0 > 0)
+		(ht_int : t_int >= 0)
+		(ht_seq : t_seq >= 0)
+		(ht : t_int <= t_seq)
+		(hcoup : R_coup > 0)
+		(hR_base_pos : R_base + R_prod + R_mark > 0) :
+		CBR R_base R_prod R_mark R_coup lam t0 t_int t_seq >= 1 := by
+		set R0int := R_base + R_prod + R_mark + R_coup with hR0int_def
+		set R0seq := R_base + R_prod + R_mark with hR0seq_def
+		have hR0int_pos : R0int > 0 := by rw [hR0int_def]; linarith
+		have hR0seq_pos : R0seq > 0 := by rw [hR0seq_def]; linarith
+		have hR0_lt : R0seq < R0int := by rw [hR0int_def, hR0seq_def]; linarith
+		have hden_int_pos : t_int + t0 > 0 := StS_denominator_pos t0 t_int ht0 ht_int
+		have hden_seq_pos : t_seq + t0 > 0 := StS_denominator_pos t0 t_seq ht0 ht_seq
+		have hStS_seq_pos : StS R0seq lam t0 t_seq > 0 := by
+		unfold StS
+		exact div_pos (mul_pos hR0seq_pos (Real.exp_pos _)) hden_seq_pos
+		have step_a : StS R0seq lam t0 t_seq <= StS R0int lam t0 t_seq := by
+		unfold StS
+		apply div_le_div_of_nonneg_right _ (le_of_lt hden_seq_pos)
+		exact mul_le_mul_of_nonneg_right (le_of_lt hR0_lt) (le_of_lt (Real.exp_pos _))
+		have step_b : StS R0int lam t0 t_seq <= StS R0int lam t0 t_int := by
+		rcases eq_or_lt_of_le ht with heq | hlt
+		. rw [heq]
+		. have hanti : AntitoneOn (StS R0int lam t0) (Ici 0) :=
+		(StS_strictly_decreasing R0int lam t0 hR0int_pos hlam ht0).antitoneOn
+		exact hanti (mem_Ici.mpr ht_int) (mem_Ici.mpr ht_seq) ht
+		unfold CBR
+		rw [ge_iff_le, le_div_iff0 hStS_seq_pos]
+		calc 1 * StS R0seq lam t0 t_seq = StS R0seq lam t0 t_seq := by ring
+		_ <= StS R0int lam t0 t_seq := step_a
+		_ <= StS R0int lam t0 t_int := step_b
+	\end{lstlisting}
+	
+	\noindent\textbf{Significance.} The paper's central claim, now genuinely proved rather than merely asserted --- when integration is at least as fast as the sequential alternative AND provides positive coupling value, integration is mathematically guaranteed to be at least as efficient. Proof combines Theorem 10 (monotonicity in time) with a separate monotonicity-in-$R_0$ argument.
+	
+	\section{CBR Invariance to $\lambda$ (Equal Deployment Times)}
+	
+	\textbf{Statement.} When $t_{\text{int}} = t_{\text{seq}} = t$, the Coupling Benefit Ratio is exactly invariant to the choice of $\lambda$.
+	\begin{equation}
+		t_{\text{int}} = t_{\text{seq}} \implies \text{CBR}(\lambda_1) = \text{CBR}(\lambda_2)\ \forall \lambda_1, \lambda_2 > 0
+	\end{equation}
+	
+	\begin{lstlisting}
+		theorem CBR_lambda_invariant_equal_time
+		(R_base R_prod R_mark R_coup t0 t lam1 lam2 : R)
+		(ht0 : t0 > 0) (ht : t >= 0)
+		(hlam1 : lam1 > 0) (hlam2 : lam2 > 0)
+		(hR_base_pos : R_base + R_prod + R_mark > 0)
+		(hcoup : R_coup > 0) :
+		CBR R_base R_prod R_mark R_coup lam1 t0 t t =
+		CBR R_base R_prod R_mark R_coup lam2 t0 t t := by
+		have hden_pos : t + t0 > 0 := StS_denominator_pos t0 t ht0 ht
+		have hden_ne : t + t0 <> 0 := ne_of_gt hden_pos
+		have hR0seq_pos : R_base + R_prod + R_mark > 0 := hR_base_pos
+		have hseq_ne : R_base + R_prod + R_mark <> 0 := ne_of_gt hR0seq_pos
+		unfold CBR StS
+		have key : forall lam' : R,
+		(R_base + R_prod + R_mark + R_coup) * Real.exp (-lam' * t) / (t + t0) /
+		((R_base + R_prod + R_mark) * Real.exp (-lam' * t) / (t + t0))
+		= (R_base + R_prod + R_mark + R_coup) / (R_base + R_prod + R_mark) := by
+		intro lam'
+		have hexp_ne : Real.exp (-lam' * t) <> 0 := ne_of_gt (Real.exp_pos _)
+		field_simp
+		rw [key lam1, key lam2]
+	\end{lstlisting}
+	
+	\noindent\textbf{Significance.} Formal basis for the paper's sensitivity-analysis discussion --- in the equal-deployment-time special case, the exponential decay terms cancel algebraically, leaving CBR dependent only on the ratio of intrinsic quality terms. Note: this result does \emph{not} extend to the general unequal-time case (explicitly flagged as an open limitation in the paper).
+	
+	\section{CBR Equals 1 Under No Coupling}
+	
+	\textbf{Statement.} When $R_{\text{coup}} = 0$ and $t_{\text{int}} = t_{\text{seq}}$, the Coupling Benefit Ratio equals exactly 1.
+	\begin{equation}
+		R_{\text{coup}} = 0,\ t_{\text{int}} = t_{\text{seq}} \implies \text{CBR} = 1
+	\end{equation}
+	
+	\begin{lstlisting}
+		theorem CBR_eq_one_iff_no_coupling
+		(R_base R_prod R_mark lam t0 t : R)
+		(ht0 : t0 > 0) (ht : t >= 0)
+		(hR_base_pos : R_base + R_prod + R_mark > 0) :
+		CBR R_base R_prod R_mark 0 lam t0 t t = 1 := by
+		have hden : t + t0 > 0 := StS_denominator_pos t0 t ht0 ht
+		have hStS_pos : StS (R_base + R_prod + R_mark) lam t0 t > 0 := by
+		unfold StS
+		apply div_pos
+		. exact mul_pos hR_base_pos (Real.exp_pos _)
+		. exact hden
+		unfold CBR
+		rw [add_zero]
+		exact div_self (ne_of_gt hStS_pos)
+	\end{lstlisting}
+	
+	\noindent\textbf{Significance.} Confirms the paper's stated interpretation that CBR = 1 indicates ``no integration advantage'' --- precisely in the case where there is no coupling value and both deployment paths take equal time, integration provides mathematically zero benefit, exactly as the model predicts.
+	
+	\section*{Summary}
+	
+	\begin{table}[h]
+		\centering
+		\begin{tabular}{@{}clc@{}}
+			\toprule
+			\textbf{\#} & \textbf{Theorem} & \textbf{Category} \\
+			\midrule
+			1 & \texttt{StS\_denominator\_pos} & Well-definedness \\
+			2 & \texttt{StS\_well\_defined} & Well-definedness \\
+			3 & \texttt{StS\_max\_value} & StS properties \\
+			4 & \texttt{MarketResponse\_pos} & Positivity \\
+			5 & \texttt{TemporalDecay\_bounds} & Bounds \\
+			6 & \texttt{trend\_half\_life} & Decay properties \\
+			7 & \texttt{decay\_uniqueness\_given\_derivative\_at\_zero} & Decay properties \\
+			8 & \texttt{eta\_coup\_bounds} & CBR components \\
+			9 & \texttt{decay\_rate\_estimator\_well\_defined} & Parameter estimation \\
+			10 & \texttt{StS\_strictly\_decreasing} & Monotonicity \\
+			11 & \texttt{StS\_max\_at\_zero} & Monotonicity \\
+			12 & \texttt{CBR\_geq\_one} & CBR main result \\
+			13 & \texttt{CBR\_lambda\_invariant\_equal\_time} & CBR sensitivity \\
+			14 & \texttt{CBR\_eq\_one\_iff\_no\_coupling} & CBR special case \\
+			\bottomrule
+		\end{tabular}
+		\caption{Complete list of the fourteen machine-checked theorems.}
+	\end{table}
+	
+	\subsection*{Scope Limitations, Stated Honestly}
+	
+	\begin{itemize}
+		\item This verification establishes internal mathematical consistency of the model as defined --- it does not constitute empirical validation against real-world FMCG data.
+		\item The sensitivity of CBR to $\lambda$ under \emph{unequal} deployment times ($t_{\text{int}} \neq t_{\text{seq}}$) has not been formally characterised (Theorem 13 covers only the equal-time case).
+		\item Theorem 7's uniqueness result is proven under an explicit differentiability hypothesis, not derived from continuity and the memoryless functional equation alone; the fully general classical characterisation remains unformalised.
+	\end{itemize}
+	
+\end{document}
