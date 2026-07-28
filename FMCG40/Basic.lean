@@ -162,6 +162,7 @@ theorem StS_strictly_decreasing
     have ht' : t ≥ 0 := le_of_lt ht
     have hd := (hderiv t ht').deriv
     rw [hd]
+
     have hexp_pos : Real.exp (-lam * t) > 0 := Real.exp_pos _
     have hden_pos : (t + t₀)^2 > 0 := by positivity
     have hfactor_neg : (-lam * (t + t₀) - 1) < 0 := by
@@ -237,4 +238,50 @@ theorem CBR_lambda_invariant_equal_time
     field_simp
   rw [key lam₁, key lam₂]
 
+theorem decay_uniqueness_given_derivative_at_zero
+    (D : ℝ → ℝ)
+    (hD0 : D 0 = 1)
+    (hDpos : ∀ t ≥ 0, D t > 0)
+    (hDfunc : ∀ t s, t ≥ 0 → s ≥ 0 → D (t + s) = D t * D s)
+    (lam : ℝ)
+    (hDderiv_all : ∀ t ≥ 0, HasDerivAt D (-lam * D t) t) :
+    ∀ t ≥ 0, D t = Real.exp (-lam * t) := by
+  intro t ht
+  set E : ℝ → ℝ := fun s => D s * Real.exp (lam * s) with hE_def
+  have hEderiv_pt : ∀ s ≥ 0, HasDerivAt E 0 s := by
+    intro s hs0
+    have hs1 : HasDerivAt (fun u : ℝ => Real.exp (lam * u)) (Real.exp (lam * s) * lam) s := by
+      have hlin : HasDerivAt (fun u : ℝ => lam * u) lam s := by
+        simpa using (hasDerivAt_id s).const_mul lam
+      simpa [mul_comm] using hlin.exp
+    have h2 := (hDderiv_all s hs0).mul hs1
+    have heq : -lam * D s * Real.exp (lam * s) + D s * (Real.exp (lam * s) * lam) = 0 := by
+      ring
+    rw [← heq]
+    exact h2
+  have hEderiv_within : ∀ s ∈ Set.Ico (0:ℝ) t, HasDerivWithinAt E 0 (Set.Ici s) s :=
+    fun s hs => (hEderiv_pt s hs.1).hasDerivWithinAt
+  have hEcont : ContinuousOn E (Set.Icc 0 t) :=
+    HasDerivAt.continuousOn (fun x hx => hEderiv_pt x hx.1)
+  have hbound : ∀ x ∈ Set.Ico (0:ℝ) t, ‖(0:ℝ)‖ ≤ (0:ℝ) := by
+    intro x _; simp
+  have hkey := norm_image_sub_le_of_norm_deriv_right_le_segment
+    (f := E) (f' := fun _ => (0:ℝ)) (a := (0:ℝ)) (b := t) (C := (0:ℝ))
+    hEcont hEderiv_within hbound
+  have hEt : E t = E 0 := by
+    have h0 : ‖E t - E 0‖ ≤ 0 * (t - 0) := hkey t (Set.right_mem_Icc.mpr ht)
+    have h0' : E t - E 0 = 0 := by
+      have h1 : ‖E t - E 0‖ ≤ 0 := by linarith
+      exact norm_le_zero_iff.mp h1
+    linarith [h0']
+  have hE0 : E 0 = 1 := by simp [hE_def, hD0]
+  have hEt1 : E t = 1 := by rw [hEt, hE0]
+  have hkey2 : D t * Real.exp (lam * t) = 1 := hEt1
+  have hExp_pos : Real.exp (lam * t) > 0 := Real.exp_pos _
+  have htarget : D t * Real.exp (lam * t) = Real.exp (-lam * t) * Real.exp (lam * t) := by
+    rw [hkey2]
+    rw [← Real.exp_add]
+    have : -lam * t + lam * t = 0 := by ring
+    rw [this, Real.exp_zero]
+  exact mul_right_cancel₀ (ne_of_gt hExp_pos) htarget
 end FMCG40
