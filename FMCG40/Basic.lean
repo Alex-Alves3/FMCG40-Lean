@@ -241,8 +241,6 @@ theorem CBR_lambda_invariant_equal_time
 theorem decay_uniqueness_given_derivative_at_zero
     (D : ℝ → ℝ)
     (hD0 : D 0 = 1)
-    (hDpos : ∀ t ≥ 0, D t > 0)
-    (hDfunc : ∀ t s, t ≥ 0 → s ≥ 0 → D (t + s) = D t * D s)
     (lam : ℝ)
     (hDderiv_all : ∀ t ≥ 0, HasDerivAt D (-lam * D t) t) :
     ∀ t ≥ 0, D t = Real.exp (-lam * t) := by

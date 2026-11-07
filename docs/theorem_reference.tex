@@ -197,8 +197,6 @@
 		theorem decay_uniqueness_given_derivative_at_zero
 		(D : R -> R)
 		(hD0 : D 0 = 1)
-		(hDpos : forall t >= 0, D t > 0)
-		(hDfunc : forall t s, t >= 0 -> s >= 0 -> D (t + s) = D t * D s)
 		(lam : R)
 		(hDderiv_all : forall t >= 0, HasDerivAt D (-lam * D t) t) :
 		forall t >= 0, D t = Real.exp (-lam * t) := by
