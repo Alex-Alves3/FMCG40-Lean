@@ -36,7 +36,7 @@
 }
 
 \title{FMCG 4.0 Formal Verification:\\ Complete Theorem Reference\\[0.3em]
-	\large Lean 4 / Mathlib Formalisation --- 14 Machine-Checked Theorems}
+	\large Lean 4 / Mathlib Formalisation --- 23 Numbered Machine-Checked Theorems}
 \author{Alexandre Alves da Silva \\ UCL Computer Science}
 \date{\today}
 
@@ -45,7 +45,7 @@
 	\maketitle
 	
 	\begin{abstract}
-		\noindent This document presents the complete set of fourteen machine-checked theorems formalising the mathematical properties of the Signal-to-Shelf (StS) metric and Coupling Benefit Ratio (CBR), as defined in the FMCG 4.0 framework. All proofs were developed and verified in Lean 4 using the Mathlib library, with zero admitted proofs (\texttt{sorry}) and zero unresolved proof obligations. The complete formalisation is publicly available at:
+		\noindent This document presents the numbered machine-checked theorems formalising the mathematical properties of the Signal-to-Shelf (StS) metric and Coupling Benefit Ratio (CBR), as defined in the FMCG 4.0 framework, and the chain from consumer signal to commercial strategy of Appendix A of the thesis. Theorems 1 to 14 are in \texttt{FMCG40/Basic.lean} and Theorems 15 to 23 are in \texttt{FMCG40/Chain.lean}. All proofs were developed and verified in Lean 4 using the Mathlib library, with zero admitted proofs (\texttt{sorry}), zero new axioms and zero unresolved proof obligations. The complete formalisation is publicly available at:
 		\url{https://github.com/Alex-Alves3/FMCG40-Lean}
 	\end{abstract}
 	
@@ -479,6 +479,579 @@
 	
 	\noindent\textbf{Significance.} Confirms the paper's stated interpretation that CBR = 1 indicates ``no integration advantage'' --- precisely in the case where there is no coupling value and both deployment paths take equal time, integration provides mathematically zero benefit, exactly as the model predicts.
 	
+	\section{Decomposition of $\ln \text{CBR}$ (Equation A.33)}
+
+	\textbf{Statement.} For $R>0$, $p>0$, $\lambda\in\mathbb{R}$ and $\Delta t_{\text{int}},\Delta t_{\text{seq}}\in\mathbb{R}$, with $\text{CBR}=\frac{R}{p}\exp\!\big(-\lambda(\Delta t_{\text{int}}-\Delta t_{\text{seq}})\big)$ (Equation A.32),
+\begin{equation}
+\ln \text{CBR} = \ln\frac{R}{p} + \lambda\,(\Delta t_{\text{seq}}-\Delta t_{\text{int}}).
+\end{equation}
+
+\begin{lstlisting}
+/-- Equation A.32: CBR computed by the implementation, with
+    R = R(a*_B; S) and p the portfolio coverage. The times are
+    Dt_int and Dt_seq, in the same unit as 1/lam. -/
+noncomputable def CBR_impl (R p lam dt_int dt_seq : R) : R :=
+  R / p * Real.exp (-lam * (dt_int - dt_seq))
+
+theorem CBR_log_decomposition
+    (R p lam dt_int dt_seq : R) (hR : R > 0) (hp : p > 0) :
+    Real.log (CBR_impl R p lam dt_int dt_seq) =
+    Real.log (R / p) + lam * (dt_seq - dt_int) := by
+  unfold CBR_impl
+  rw [Real.log_mul (div_pos hR hp).ne' (Real.exp_pos _).ne', Real.log_exp]
+  ring
+\end{lstlisting}
+
+	\noindent\textbf{Significance.} The first term is the quality gain of the recipe over the portfolio product; the second is the speed gain. The decomposition holds for every real $\lambda$ and every pair of times.
+
+	\section{Exact Condition for Coupling Benefit (Section A.6)}
+
+	\textbf{Statement.} With the hypotheses of Theorem 15,
+\begin{equation}
+\text{CBR} > 1 \iff \frac{R}{p} > \exp\!\big(-\lambda(\Delta t_{\text{seq}}-\Delta t_{\text{int}})\big).
+\end{equation}
+\textbf{Relation to condition 10 of Section A.1.} Equation A.10 (with the denominator $t+t_0$) and Equation A.32 differ by the factor $(\Delta t_{\text{seq}}+t_0)/(\Delta t_{\text{int}}+t_0)$ of Equation A.34 (\texttt{CBR\_arms\_eq\_CBR\_StS}). Under the hypotheses of condition 10 ($\lambda>0$, $t_0>0$, $0\le t_{\text{int}}\le t_{\text{seq}}$, $R_{\text{coup}}>0$, $R_{\text{base}}+R_{\text{prod}}+R_{\text{mark}}>0$), with $R=R_{\text{base}}+R_{\text{prod}}+R_{\text{mark}}+R_{\text{coup}}$ and $p=R_{\text{base}}+R_{\text{prod}}+R_{\text{mark}}$, both Equation A.32 and Equation A.10 are strictly greater than 1 (\texttt{CBR\_condition10\_strict}).
+
+\begin{lstlisting}
+theorem CBR_gt_one_iff
+    (R p lam dt_int dt_seq : R) (_hR : R > 0) (_hp : p > 0) :
+    CBR_impl R p lam dt_int dt_seq > 1 <->
+    R / p > Real.exp (-lam * (dt_seq - dt_int)) := by
+  have hE : 0 < Real.exp (-lam * (dt_seq - dt_int)) := Real.exp_pos _
+  have h : Real.exp (-lam * (dt_int - dt_seq)) =
+      (Real.exp (-lam * (dt_seq - dt_int)))^-1 := by
+    rw [<- Real.exp_neg]
+    congr 1
+    ring
+  unfold CBR_impl
+  rw [h, <- div_eq_mul_inv]
+  exact one_lt_div hE
+
+/-- Equation A.34: the full Signal-to-Shelf form, with the factor
+    (Dt_seq + t0) / (Dt_int + t0). -/
+noncomputable def CBR_StS (R p lam t0 dt_int dt_seq : R) : R :=
+  CBR_impl R p lam dt_int dt_seq * ((dt_seq + t0) / (dt_int + t0))
+
+/-- Equation A.10 with arbitrary intrinsic qualities for the two arms.
+    `CBR R_base R_prod R_mark R_coup ...` of Basic.lean is the instance
+    with R0_int = R_base + R_prod + R_mark + R_coup and
+    R0_seq = R_base + R_prod + R_mark. -/
+noncomputable def CBR_arms (R0_int R0_seq lam t0 t_int t_seq : R) : R :=
+  StS R0_int lam t0 t_int / StS R0_seq lam t0 t_seq
+
+theorem CBR_eq_CBR_arms
+    (R_base R_prod R_mark R_coup lam t0 t_int t_seq : R) :
+    CBR R_base R_prod R_mark R_coup lam t0 t_int t_seq =
+    CBR_arms (R_base + R_prod + R_mark + R_coup) (R_base + R_prod + R_mark)
+      lam t0 t_int t_seq := rfl
+
+/-- Relation between Equations A.32, A.34 and A.10. -/
+theorem CBR_arms_eq_CBR_StS
+    (R p lam t0 t_int t_seq : R)
+    (hR : R > 0) (hp : p > 0)
+    (ht0 : t0 > 0) (ht_int : t_int >= 0) (ht_seq : t_seq >= 0) :
+    CBR_arms R p lam t0 t_int t_seq = CBR_StS R p lam t0 t_int t_seq := by
+  have hi : t_int + t0 > 0 := StS_denominator_pos t0 t_int ht0 ht_int
+  have hs : t_seq + t0 > 0 := StS_denominator_pos t0 t_seq ht0 ht_seq
+  have e : Real.exp (-lam * t_int) =
+      Real.exp (-lam * (t_int - t_seq)) * Real.exp (-lam * t_seq) := by
+    rw [<- Real.exp_add]
+    congr 1
+    ring
+  unfold CBR_arms CBR_StS CBR_impl StS
+  rw [e]
+  have h1 : Real.exp (-lam * t_seq) <> 0 := (Real.exp_pos _).ne'
+  field_simp
+
+/-- Condition 10 of Section A.1 as a special case of the exact
+    condition: under its hypotheses the criterion of
+    `CBR_gt_one_iff` holds, and the conclusion is strict. -/
+theorem CBR_condition10_strict
+    (R_base R_prod R_mark R_coup lam t0 t_int t_seq : R)
+    (hlam : lam > 0) (ht0 : t0 > 0)
+    (ht_int : t_int >= 0) (ht_seq : t_seq >= 0) (ht : t_int <= t_seq)
+    (hcoup : R_coup > 0)
+    (hR_base_pos : R_base + R_prod + R_mark > 0) :
+    CBR_impl (R_base + R_prod + R_mark + R_coup) (R_base + R_prod + R_mark)
+      lam t_int t_seq > 1 /\
+    CBR R_base R_prod R_mark R_coup lam t0 t_int t_seq > 1 := by
+  have hp : R_base + R_prod + R_mark > 0 := hR_base_pos
+  have hR : R_base + R_prod + R_mark + R_coup > 0 := by linarith
+  have hratio : (R_base + R_prod + R_mark + R_coup) / (R_base + R_prod + R_mark) > 1 := by
+    rw [gt_iff_lt, one_lt_div hp]
+    linarith
+  have hexp : Real.exp (-lam * (t_seq - t_int)) <= 1 := by
+    rw [<- Real.exp_zero]
+    apply Real.exp_le_exp.mpr
+    nlinarith
+  have h1 : CBR_impl (R_base + R_prod + R_mark + R_coup) (R_base + R_prod + R_mark)
+      lam t_int t_seq > 1 :=
+    (CBR_gt_one_iff _ _ lam t_int t_seq hR hp).mpr (lt_of_le_of_lt hexp hratio)
+  refine <<h1, ?_>>
+  rw [CBR_eq_CBR_arms,
+    CBR_arms_eq_CBR_StS _ _ lam t0 t_int t_seq hR hp ht0 ht_int ht_seq]
+  unfold CBR_StS
+  have hi : t_int + t0 > 0 := StS_denominator_pos t0 t_int ht0 ht_int
+  have hfac : (t_seq + t0) / (t_int + t0) >= 1 := by
+    rw [ge_iff_le, le_div_iff0 hi]
+    linarith
+  calc (1 : R) < CBR_impl (R_base + R_prod + R_mark + R_coup) (R_base + R_prod + R_mark)
+        lam t_int t_seq := h1
+    _ = CBR_impl (R_base + R_prod + R_mark + R_coup) (R_base + R_prod + R_mark)
+        lam t_int t_seq * 1 := by ring
+    _ <= CBR_impl (R_base + R_prod + R_mark + R_coup) (R_base + R_prod + R_mark)
+        lam t_int t_seq * ((t_seq + t0) / (t_int + t0)) :=
+      mul_le_mul_of_nonneg_left hfac (by linarith)
+\end{lstlisting}
+
+	\noindent\textbf{Significance.} Condition 10 is a special case in the sense that its hypotheses imply the criterion above. Its conclusion $\text{CBR}\ge 1$ is weaker than what holds: the inequality is strict. The criterion itself is stated for Equation A.32, which has no $t_0$; for Equation A.10 the same bound carries the extra factor of Equation A.34.
+
+	\section{Boundedness of the Rewards (Section A.6)}
+
+	\textbf{Statement.} (a) For finite non-empty $E$ and $S$, if every $c(\varphi,k)=\cos(\varphi(d),\varphi(e_k))\in[-1,1]$, then
+$R=\frac{1}{|E|}\sum_{\varphi\in E}\min_{k\in S}c(\varphi,k)\in[-1,1]$ (Equation A.22).
+
+(b) For finite non-empty $S$, if $\hat y_k=\pi_k\cdot\text{expit}(f_k)$ with $\pi_k\in[0,1]$, then $R_c=\min_{k\in S}\hat y_k\in[0,1]$ (Equation A.35).
+
+\begin{lstlisting}
+/-- Equation A.22. `enc` ranges over the finite encoder set E, `cos` is
+    an abstract similarity, `d` stands for desc(a) and `e k` for the
+    descriptor text of signal member k. -/
+noncomputable def coverageReward {T V iota : Type*}
+    (cos : V -> V -> R) (E : Finset (T -> V)) (S : Finset iota) (hS : S.Nonempty)
+    (d : T) (e : iota -> T) : R :=
+  (1 / (E.card : R)) *
+    sum phi in E, S.inf' hS (fun k => cos (phi d) (phi (e k)))
+
+/-- T17(a). Equation A.22 lies in [-1, 1] when cos takes values in [-1, 1]. -/
+theorem coverageReward_bounds {T V iota : Type*}
+    (cos : V -> V -> R) (hcos : forall u v, -1 <= cos u v /\ cos u v <= 1)
+    (E : Finset (T -> V)) (S : Finset iota) (hE : E.Nonempty) (hS : S.Nonempty)
+    (d : T) (e : iota -> T) :
+    -1 <= coverageReward cos E S hS d e /\ coverageReward cos E S hS d e <= 1 := by
+  have hcard : (0 : R) < (E.card : R) := by
+    exact_mod_cast Finset.card_pos.mpr hE
+  have hmin : forall phi in E, -1 <= S.inf' hS (fun k => cos (phi d) (phi (e k))) /\
+      S.inf' hS (fun k => cos (phi d) (phi (e k))) <= 1 := by
+    intro phi _
+    constructor
+    . exact (Finset.le_inf' hS _ (fun k _ => (hcos _ _).1))
+    . obtain <<k, hk>> := hS
+      exact (Finset.inf'_le _ hk).trans (hcos _ _).2
+  have hsum_le : sum phi in E, S.inf' hS (fun k => cos (phi d) (phi (e k))) <= (E.card : R) := by
+    calc sum phi in E, S.inf' hS (fun k => cos (phi d) (phi (e k))) <= sum _phi in E, (1 : R) :=
+          Finset.sum_le_sum (fun phi hphi => (hmin phi hphi).2)
+      _ = (E.card : R) := by simp
+  have hsum_ge : -(E.card : R) <= sum phi in E, S.inf' hS (fun k => cos (phi d) (phi (e k))) := by
+    calc -(E.card : R) = sum _phi in E, (-1 : R) := by simp
+      _ <= sum phi in E, S.inf' hS (fun k => cos (phi d) (phi (e k))) :=
+          Finset.sum_le_sum (fun phi hphi => (hmin phi hphi).1)
+  unfold coverageReward
+  constructor
+  . rw [one_div, inv_mul_eq_div, le_div_iff0 hcard]
+    linarith
+  . rw [one_div, inv_mul_eq_div, div_le_one hcard]
+    exact hsum_le
+
+/-- The logistic function of Equation A.35. -/
+noncomputable def expit (x : R) : R := 1 / (1 + Real.exp (-x))
+
+theorem expit_mem_Ioo (x : R) : 0 < expit x /\ expit x < 1 := by
+  have h : 0 < 1 + Real.exp (-x) := by positivity
+  constructor
+  . unfold expit; positivity
+  . unfold expit
+    rw [div_lt_one h]
+    linarith [Real.exp_pos (-x)]
+
+/-- Equation A.35. `pk` and `f` are the two parts of the gradient boosting
+    model for signal member k, evaluated at the recipe. -/
+noncomputable def consumerReward {iota : Type*}
+    (S : Finset iota) (hS : S.Nonempty) (pk f : iota -> R) : R :=
+  S.inf' hS (fun k => pk k * expit (f k))
+
+/-- T17(b). Equation A.35 lies in [0, 1] when each pk k is in [0, 1]. -/
+theorem consumerReward_bounds {iota : Type*}
+    (S : Finset iota) (hS : S.Nonempty) (pk f : iota -> R)
+    (hpk : forall k, 0 <= pk k /\ pk k <= 1) :
+    0 <= consumerReward S hS pk f /\ consumerReward S hS pk f <= 1 := by
+  have hy : forall k, 0 <= pk k * expit (f k) /\ pk k * expit (f k) <= 1 := by
+    intro k
+    obtain <<h0, h1>> := expit_mem_Ioo (f k)
+    obtain <<hp0, hp1>> := hpk k
+    constructor
+    . positivity
+    . calc pk k * expit (f k) <= 1 * 1 :=
+          mul_le_mul hp1 h1.le h0.le zero_le_one
+        _ = 1 := by ring
+  unfold consumerReward
+  constructor
+  . exact Finset.le_inf' hS _ (fun k _ => (hy k).1)
+  . obtain <<k, hk>> := hS
+    exact (Finset.inf'_le _ hk).trans (hy k).2
+\end{lstlisting}
+
+	\noindent\textbf{Significance.} Encoders and the cosine are abstract: the theorem holds for any encoder set and any similarity with values in $[-1,1]$. Non-emptiness of $E$ and $S$ is a hypothesis.
+
+	\section{Budget Monotonicity (Section A.6, Equation A.23)}
+
+	\textbf{Statement.} For a sequence of proposals $a_1,a_2,\dots$ and a real reward $R$, $M(B)=\max_{n\le B}R(a_n)$ is non-decreasing in $B\ge 1$.
+
+\begin{lstlisting}
+/-- M(B) = max over n <= B of R(a_n), for a sequence of proposals
+    a_1, a_2, ... and B >= 1. -/
+noncomputable def bestWithin {alpha : Type*} (R : alpha -> R) (a : N -> alpha)
+    (B : N) (hB : 1 <= B) : R :=
+  (Finset.Icc 1 B).sup' <<1, Finset.mem_Icc.mpr <<le_refl 1, hB>>>> (fun n => R (a n))
+
+theorem bestWithin_mono {alpha : Type*} (R : alpha -> R) (a : N -> alpha)
+    {B1 B2 : N} (h1 : 1 <= B1) (h : B1 <= B2) :
+    bestWithin R a B1 h1 <= bestWithin R a B2 (h1.trans h) := by
+  unfold bestWithin
+  apply Finset.sup'_mono
+  intro n hn
+  rw [Finset.mem_Icc] at hn |-
+  exact <<hn.1, hn.2.trans h>>
+\end{lstlisting}
+
+	\noindent\textbf{Significance.} The sequence is fixed and independent of $B$, so $a_1,\dots,a_B$ is a prefix of $a_1,\dots,a_{B'}$ for $B\le B'$. A search method whose proposals depend on the declared budget is outside this statement.
+
+	\section{Safety of the Strategy Operator (Section A.6, Equations A.27 and A.28)}
+
+	\textbf{Statement.} If $\Omega_{20}\cap\mathcal{C}\neq\emptyset$ and $\omega^*$ is an argmax of $f$ over $\Omega_{20}\cap\mathcal{C}$ (finite sets), then $\omega^*\in\mathcal{C}$. If the intersection is empty, the operator returns no strategy. The verifier $V$ is an abstract function with values SAT or UNSAT.
+
+\textbf{Relation to Theorem C.1.} In Equation A.27, $\mathcal{C}(x)$ is defined as the set that $V$ accepts, so the membership $\omega^*\in\mathcal{C}(x)$ follows from the definition of an argmax taken over a subset of $\mathcal{C}(x)$. The set $C$ of Theorem C.1 is the set of constraint-compliant strategies. The last theorem of this section shows that, if $V$ is sound with respect to $C$, the selected strategy lies in $C$ (safety), and, if $V$ is also complete and $\Omega_{20}$ meets $C$, a strategy is returned (relative completeness).
+
+\begin{lstlisting}
+/-- Verdict of the ASP verifier. -/
+inductive Verdict where
+  | SAT
+  | UNSAT
+  deriving DecidableEq
+
+/-- Equation A.27: the set accepted by the verifier. -/
+def compliantSet {X Om : Type*} [Fintype Om] (V : X -> Om -> Verdict) (x : X) : Finset Om :=
+  Finset.univ.filter (fun om => V x om = Verdict.SAT)
+
+theorem mem_compliantSet {X Om : Type*} [Fintype Om] (V : X -> Om -> Verdict) (x : X)
+    (om : Om) : om in compliantSet V x <-> V x om = Verdict.SAT := by
+  simp [compliantSet]
+
+/-- om is an argmax of f over the finite set s. -/
+def IsArgmaxOn {Om : Type*} (f : Om -> R) (s : Finset Om) (om : Om) : Prop :=
+  om in s /\ forall om' in s, f om' <= f om
+
+/-- T19. Safety: an argmax of f over Om20 cap Cal belongs to Cal. In this
+    encoding the statement follows from the definition of argmax over a
+    set contained in Cal, given Equation A.27. -/
+theorem selection_mem_compliant {X Om : Type*} [Fintype Om] [DecidableEq Om]
+    (V : X -> Om -> Verdict) (x : X) (Om20 : Finset Om) (f : Om -> R) (omstar : Om)
+    (_hne : (Om20 cap compliantSet V x).Nonempty)
+    (harg : IsArgmaxOn f (Om20 cap compliantSet V x) omstar) :
+    omstar in compliantSet V x /\ V x omstar = Verdict.SAT := by
+  have hmem := (Finset.mem_inter.mp harg.1).2
+  exact <<hmem, (mem_compliantSet V x omstar).mp hmem>>
+
+/-- Equation A.28 as a partial function: the selected strategy, or
+    `none` when Om20 cap Cal is empty. -/
+noncomputable def selectStrategy {X Om : Type*} [Fintype Om] [DecidableEq Om]
+    (V : X -> Om -> Verdict) (x : X) (Om20 : Finset Om) (f : Om -> R) : Option Om :=
+  if h : (Om20 cap compliantSet V x).Nonempty then
+    some (Finset.exists_max_image _ f h).choose
+  else none
+
+theorem selectStrategy_eq_none_iff {X Om : Type*} [Fintype Om] [DecidableEq Om]
+    (V : X -> Om -> Verdict) (x : X) (Om20 : Finset Om) (f : Om -> R) :
+    selectStrategy V x Om20 f = none <-> Om20 cap compliantSet V x = {} := by
+  unfold selectStrategy
+  by_cases h : (Om20 cap compliantSet V x).Nonempty
+  . rw [dif_pos h]
+    simp only [reduceCtorEq, false_iff]
+    exact Finset.nonempty_iff_ne_empty.mp h
+  . rw [dif_neg h]
+    simp only [true_iff]
+    exact Finset.not_nonempty_iff_eq_empty.mp h
+
+/-- T19 for the partial function: whatever Gamma returns is an argmax of f
+    over Om20 cap Cal, hence verified by V. -/
+theorem selectStrategy_safe {X Om : Type*} [Fintype Om] [DecidableEq Om]
+    (V : X -> Om -> Verdict) (x : X) (Om20 : Finset Om) (f : Om -> R) (om : Om)
+    (h : selectStrategy V x Om20 f = some om) :
+    IsArgmaxOn f (Om20 cap compliantSet V x) om /\ V x om = Verdict.SAT := by
+  unfold selectStrategy at h
+  by_cases hne : (Om20 cap compliantSet V x).Nonempty
+  . rw [dif_pos hne] at h
+    have hc := (Finset.exists_max_image _ f hne).choose_spec
+    have h' := Option.some.inj h
+    rw [h'] at hc
+    exact <<<<hc.1, hc.2>>, (mem_compliantSet V x _).mp (Finset.mem_inter.mp hc.1).2>>
+  . rw [dif_neg hne] at h
+    exact absurd h (by simp)
+
+/-- Link with Theorem C.1. If V is sound with respect to the semantic
+    compliant set C, the selected strategy lies in C (safety). If V is
+    also complete and Om20 meets C, a strategy is returned (relative
+    completeness). -/
+theorem selection_theorem_C1 {X Om : Type*} [Fintype Om] [DecidableEq Om]
+    (V : X -> Om -> Verdict) (x : X) (C : Set Om) (Om20 : Finset Om) (f : Om -> R)
+    (hsound : forall om, V x om = Verdict.SAT -> om in C)
+    (hcomplete : forall om, om in C -> V x om = Verdict.SAT) :
+    (forall om, selectStrategy V x Om20 f = some om -> om in C) /\
+    ((exists om in Om20, om in C) -> selectStrategy V x Om20 f <> none) := by
+  constructor
+  . intro om h
+    exact hsound om (selectStrategy_safe V x Om20 f om h).2
+  . rintro <<om, hom, hC>> hnone
+    rw [selectStrategy_eq_none_iff] at hnone
+    have hmem : om in Om20 cap compliantSet V x :=
+      Finset.mem_inter.mpr <<hom, (mem_compliantSet V x om).mpr (hcomplete om hC)>>
+    rw [hnone] at hmem
+    exact absurd hmem (Finset.notMem_empty om)
+\end{lstlisting}
+
+	\noindent\textbf{Significance.} The statement of Equation A.28 is encoded as a partial function with values in \texttt{Option}. Safety with respect to the semantic set $C$ requires the soundness hypothesis of Theorem C.1.
+
+	\section{Status Propagation (Section A.6, Equation A.18)}
+
+	\textbf{Statement.} With $\kappa\in\{\text{candidate},\text{confirmed}\}$ and the chain output carrying the signal $s$, $\kappa(\Phi_B(D))=\kappa(s)$.
+
+\begin{lstlisting}
+/-- Confirmation status of a signal, ordered candidate < confirmed. -/
+inductive Status where
+  | candidate
+  | confirmed
+  deriving DecidableEq
+
+/-- Equation A.18: s = (S, ell, kappa). -/
+structure Signal (iota Level : Type*) where
+  members : Finset iota
+  level : Level
+  status : Status
+
+/-- Output of the chain Phi_B(D) = (s, a*_B, om*). -/
+structure ChainOutput (iota Level Recipe Strategy : Type*) where
+  signal : Signal iota Level
+  recipe : Recipe
+  strategy : Strategy
+
+/-- kappa of a chain output is the status of the signal that it carries. -/
+def ChainOutput.status {iota Level Recipe Strategy : Type*}
+    (o : ChainOutput iota Level Recipe Strategy) : Status :=
+  o.signal.status
+
+/-- T20. By the encoding chosen, the chain output carries the signal
+    produced by Sigma, so status propagation holds by definition (`rfl`). -/
+theorem status_propagation {Corpus iota Level Recipe Strategy : Type*}
+    (sigma : Corpus -> Signal iota Level) (prodOp : Signal iota Level -> Recipe)
+    (gamma : Signal iota Level -> Recipe -> Strategy) (D : Corpus) :
+    (ChainOutput.mk (sigma D) (prodOp (sigma D)) (gamma (sigma D) (prodOp (sigma D)))).status = (sigma D).status :=
+  rfl
+\end{lstlisting}
+
+	\noindent\textbf{Significance.} In the encoding chosen, the chain output stores the signal produced by the signal operator and its status is read from that field. The theorem holds by definition (\texttt{rfl}). It records that the encoding of the chain preserves the status; it does not derive the property from other assumptions.
+
+	\section{Well-Typedness of the Composition (Section A.6, Equation A.30)}
+
+	\textbf{Statement.} The signal operator returns a non-empty member set $S\subseteq F$; the product operator requires $S\neq\emptyset$ and returns a recipe whose ratios sum to 1; the strategy operator requires $x$ in the domain of $\psi$. The composition $\Phi_B=\Gamma\circ\Pi_B\circ\Sigma$ is well defined.
+
+\begin{lstlisting}
+/-- Output of Sigma: a non-empty member set contained in the family F. -/
+structure SignalOver {iota : Type*} (F : Finset iota) where
+  members : Finset iota
+  subset : members subset F
+  nonempty : members.Nonempty
+
+/-- Output of Pi_B: a recipe whose eight ratios sum to one. -/
+structure Recipe where
+  ratios : Fin 8 -> R
+  sum_one : sum n, ratios n = 1
+
+/-- Context map psi : (recipe, observation) -> R10 and its image, the
+    domain required by Gamma. -/
+def ContextDomain {Obs : Type*} (psi : Recipe -> Obs -> (Fin 10 -> R)) : Type _ :=
+  {x : Fin 10 -> R // exists a o, x = psi a o}
+
+/-- Sigma requires a corpus and returns a SignalOver F and an observation;
+    Pi_B requires a SignalOver F (non-empty by type) and returns a Recipe;
+    Gamma requires a ContextDomain psi. The composition is well defined by
+    construction. -/
+noncomputable def chain {Corpus Obs Strategy iota : Type*} {F : Finset iota}
+    (sigma : Corpus -> SignalOver F x Obs)
+    (prodOp : SignalOver F -> Obs -> Recipe)
+    (psi : Recipe -> Obs -> (Fin 10 -> R))
+    (gamma : ContextDomain psi -> Strategy) (D : Corpus) :
+    SignalOver F x Recipe x Strategy :=
+  let so := sigma D
+  let a := prodOp so.1 so.2
+  (so.1, a, gamma <<psi a so.2, a, so.2, rfl>>)
+
+/-- The three preconditions hold for the data flowing through the chain. -/
+theorem chain_wellTyped {Corpus Obs Strategy iota : Type*} {F : Finset iota}
+    (sigma : Corpus -> SignalOver F x Obs)
+    (prodOp : SignalOver F -> Obs -> Recipe)
+    (psi : Recipe -> Obs -> (Fin 10 -> R))
+    (gamma : ContextDomain psi -> Strategy) (D : Corpus) :
+    ((chain sigma prodOp psi gamma D).1.members.Nonempty /\ (chain sigma prodOp psi gamma D).1.members subset F) /\
+    (sum n, (chain sigma prodOp psi gamma D).2.1.ratios n = 1) /\
+    (exists a o, psi a o = psi (chain sigma prodOp psi gamma D).2.1 (sigma D).2) := by
+  exact <<<<(sigma D).1.nonempty, (sigma D).1.subset>>, (prodOp (sigma D).1 (sigma D).2).sum_one,
+    <<_, _, rfl>>>>
+\end{lstlisting}
+
+	\noindent\textbf{Significance.} Encoding: the preconditions are fields of structures. \texttt{SignalOver F} carries non-emptiness and inclusion in $F$. \texttt{Recipe} carries the sum of the eight ratios. \texttt{ContextDomain} is the subtype of $\mathbb{R}^{10}$ formed by the values of $\psi$. The function \texttt{chain} type-checks because each output satisfies the next precondition; the theorem restates the three invariants for the data flowing through the chain.
+
+	\section{Sensitivity of CBR to $\lambda$ with Different Times}
+
+	\textbf{Statement.} For Equation A.10 with $\text{StS}(s,t)=R_0(s)\exp(-\lambda t)/(t+t_0)$, $t_0>0$, $t_{\text{int}},t_{\text{seq}}\ge0$ and $R_0>0$ in both arms,
+\begin{equation}
+\ln\text{CBR}(\lambda)=\ln\frac{R_{0,\text{int}}}{R_{0,\text{seq}}}+\ln\frac{t_{\text{seq}}+t_0}{t_{\text{int}}+t_0}+\lambda\,(t_{\text{seq}}-t_{\text{int}}).
+\end{equation}
+Consequently CBR is strictly increasing in $\lambda$ if $t_{\text{int}}<t_{\text{seq}}$, strictly decreasing if $t_{\text{int}}>t_{\text{seq}}$, and constant if $t_{\text{int}}=t_{\text{seq}}$.
+
+\begin{lstlisting}
+theorem CBR_arms_closed_form
+    (R0_int R0_seq lam t0 t_int t_seq : R)
+    (hint : R0_int > 0) (hseq : R0_seq > 0)
+    (ht0 : t0 > 0) (ht_int : t_int >= 0) (ht_seq : t_seq >= 0) :
+    CBR_arms R0_int R0_seq lam t0 t_int t_seq =
+    (R0_int / R0_seq * ((t_seq + t0) / (t_int + t0))) *
+      Real.exp (lam * (t_seq - t_int)) := by
+  have hi : t_int + t0 > 0 := StS_denominator_pos t0 t_int ht0 ht_int
+  have hs : t_seq + t0 > 0 := StS_denominator_pos t0 t_seq ht0 ht_seq
+  have e : Real.exp (-lam * t_int) =
+      Real.exp (lam * (t_seq - t_int)) * Real.exp (-lam * t_seq) := by
+    rw [<- Real.exp_add]
+    congr 1
+    ring
+  unfold CBR_arms StS
+  rw [e]
+  have h1 : Real.exp (-lam * t_seq) <> 0 := (Real.exp_pos _).ne'
+  field_simp
+
+/-- T22. ln CBR(lam) = ln(R0_int / R0_seq) + ln((t_seq + t0)/(t_int + t0))
+    + lam (t_seq - t_int). -/
+theorem CBR_log_sensitivity
+    (R0_int R0_seq lam t0 t_int t_seq : R)
+    (hint : R0_int > 0) (hseq : R0_seq > 0)
+    (ht0 : t0 > 0) (ht_int : t_int >= 0) (ht_seq : t_seq >= 0) :
+    Real.log (CBR_arms R0_int R0_seq lam t0 t_int t_seq) =
+    Real.log (R0_int / R0_seq) + Real.log ((t_seq + t0) / (t_int + t0)) +
+      lam * (t_seq - t_int) := by
+  have hi : t_int + t0 > 0 := StS_denominator_pos t0 t_int ht0 ht_int
+  have hs : t_seq + t0 > 0 := StS_denominator_pos t0 t_seq ht0 ht_seq
+  rw [CBR_arms_closed_form R0_int R0_seq lam t0 t_int t_seq hint hseq ht0 ht_int ht_seq,
+    Real.log_mul (mul_pos (div_pos hint hseq) (div_pos hs hi)).ne' (Real.exp_pos _).ne',
+    Real.log_mul (div_pos hint hseq).ne' (div_pos hs hi).ne', Real.log_exp]
+
+/-- T22, consequences: strictly increasing in lam if t_int < t_seq,
+    strictly decreasing if t_int > t_seq, constant if t_int = t_seq. -/
+theorem CBR_lambda_monotonicity
+    (R0_int R0_seq t0 t_int t_seq : R)
+    (hint : R0_int > 0) (hseq : R0_seq > 0)
+    (ht0 : t0 > 0) (ht_int : t_int >= 0) (ht_seq : t_seq >= 0) :
+    (t_int < t_seq -> StrictMono (fun lam => CBR_arms R0_int R0_seq lam t0 t_int t_seq)) /\
+    (t_seq < t_int -> StrictAnti (fun lam => CBR_arms R0_int R0_seq lam t0 t_int t_seq)) /\
+    (t_int = t_seq -> forall lam1 lam2,
+      CBR_arms R0_int R0_seq lam1 t0 t_int t_seq =
+      CBR_arms R0_int R0_seq lam2 t0 t_int t_seq) := by
+  have hi : t_int + t0 > 0 := StS_denominator_pos t0 t_int ht0 ht_int
+  have hs : t_seq + t0 > 0 := StS_denominator_pos t0 t_seq ht0 ht_seq
+  have hK : 0 < R0_int / R0_seq * ((t_seq + t0) / (t_int + t0)) :=
+    mul_pos (div_pos hint hseq) (div_pos hs hi)
+  have hform := fun lam => CBR_arms_closed_form R0_int R0_seq lam t0 t_int t_seq
+    hint hseq ht0 ht_int ht_seq
+  refine <<?_, ?_, ?_>>
+  . intro hlt lam1 lam2 h12
+    simp only [hform]
+    apply mul_lt_mul_of_pos_left _ hK
+    apply Real.exp_lt_exp.mpr
+    nlinarith
+  . intro hlt lam1 lam2 h12
+    simp only [hform]
+    apply mul_lt_mul_of_pos_left _ hK
+    apply Real.exp_lt_exp.mpr
+    nlinarith
+  . intro heq lam1 lam2
+    rw [hform, hform, heq]
+    simp
+
+/-- Consistency with the existing theorem `CBR_lambda_invariant_equal_time`:
+    the equal-time case of T22 gives the same conclusion. -/
+theorem CBR_lambda_invariant_from_sensitivity
+    (R_base R_prod R_mark R_coup t0 t lam1 lam2 : R)
+    (ht0 : t0 > 0) (ht : t >= 0)
+    (hR_base_pos : R_base + R_prod + R_mark > 0)
+    (hcoup : R_coup > 0) :
+    CBR R_base R_prod R_mark R_coup lam1 t0 t t =
+    CBR R_base R_prod R_mark R_coup lam2 t0 t t := by
+  have hint : R_base + R_prod + R_mark + R_coup > 0 := by linarith
+  rw [CBR_eq_CBR_arms, CBR_eq_CBR_arms]
+  exact (CBR_lambda_monotonicity _ _ t0 t t hint hR_base_pos ht0 ht ht).2.2
+    rfl lam1 lam2
+\end{lstlisting}
+
+	\noindent\textbf{Significance.} This closes the limitation declared in Section A.1 on the sensitivity of CBR to $\lambda$ under unequal deployment times. The equal-time case reproduces Theorem 13 (\texttt{CBR\_lambda\_invariant\_from\_sensitivity} derives its conclusion from the new formula).
+
+	\section{Sign of the Speed Term (Equation A.29)}
+
+	\textbf{Statement.} With $\Delta t_{\text{int}}=4.0-\min(1.5,\,b+0.2\cdot\mathbb{1}[\rho])$, $b\ge0$, $\mathbb{1}[\rho]\in\{0,1\}$ and $\Delta t_{\text{seq}}=9.0$ (months): $2.5\le\Delta t_{\text{int}}\le4.0<\Delta t_{\text{seq}}$. For $\lambda>0$, $\lambda(\Delta t_{\text{seq}}-\Delta t_{\text{int}})>0$ and $\text{CBR}>R/p$.
+
+\begin{lstlisting}
+/-- Dt_int of Equation A.29, in months. -/
+noncomputable def timeToShelfInt (b : R) (rho : Prop) [Decidable rho] : R :=
+  4.0 - min 1.5 (b + 0.2 * (if rho then 1 else 0))
+
+/-- Dt_seq of Equation A.29, in months. -/
+def timeToShelfSeq : R := 9.0
+
+/-- T23. With b >= 0: 2.5 <= Dt_int <= 4.0 < Dt_seq. -/
+theorem timeToShelf_bounds (b : R) (rho : Prop) [Decidable rho] (hb : 0 <= b) :
+    2.5 <= timeToShelfInt b rho /\ timeToShelfInt b rho <= 4.0 /\ 4.0 < timeToShelfSeq := by
+  unfold timeToShelfInt timeToShelfSeq
+  have h0 : (0 : R) <= 0.2 * (if rho then (1 : R) else 0) := by
+    split_ifs <;> norm_num
+  refine <<?_, ?_, by norm_num>>
+  . have := min_le_left (1.5 : R) (b + 0.2 * (if rho then 1 else 0))
+    linarith
+  . have := le_min (by norm_num : (0 : R) <= 1.5) (by linarith : (0 : R) <= b + 0.2 * (if rho then 1 else 0))
+    linarith
+
+/-- The lower bound 2.5 <= Dt_int holds without any hypothesis on b. -/
+theorem timeToShelfInt_lower (b : R) (rho : Prop) [Decidable rho] :
+    2.5 <= timeToShelfInt b rho := by
+  unfold timeToShelfInt
+  have := min_le_left (1.5 : R) (b + 0.2 * (if rho then 1 else 0))
+  linarith
+
+/-- T23, consequences: for lam > 0, lam (Dt_seq - Dt_int) > 0 and
+    CBR > R/p. The factor c > 0 converts months to the unit of 1/lam
+    (Section A.4 uses c = 365.25/(12 x 7) weeks per month). -/
+theorem speed_term_positive (b : R) (rho : Prop) [Decidable rho] (hb : 0 <= b)
+    (lam c R p : R) (hlam : lam > 0) (hc : c > 0) (hR : R > 0) (hp : p > 0) :
+    lam * (timeToShelfSeq - timeToShelfInt b rho) > 0 /\
+    lam * (c * timeToShelfSeq - c * timeToShelfInt b rho) > 0 /\
+    CBR_impl R p lam (c * timeToShelfInt b rho) (c * timeToShelfSeq) > R / p := by
+  obtain <<_, h2, h3>> := timeToShelf_bounds b rho hb
+  have hgap : timeToShelfSeq - timeToShelfInt b rho > 0 := by linarith
+  have hgapc : c * timeToShelfSeq - c * timeToShelfInt b rho > 0 := by
+    rw [<- mul_sub]; exact mul_pos hc hgap
+  refine <<mul_pos hlam hgap, mul_pos hlam hgapc, ?_>>
+  unfold CBR_impl
+  have hexp : 1 < Real.exp (-lam * (c * timeToShelfInt b rho - c * timeToShelfSeq)) := by
+    rw [<- Real.exp_zero]
+    apply Real.exp_lt_exp.mpr
+    nlinarith
+  have hq : 0 < R / p := div_pos hR hp
+  calc R / p = R / p * 1 := by ring
+    _ < R / p * Real.exp (-lam * (c * timeToShelfInt b rho - c * timeToShelfSeq)) :=
+      mul_lt_mul_of_pos_left hexp hq
+
+end FMCG40
+\end{lstlisting}
+
+	\noindent\textbf{Significance.} The lower bound $2.5\le\Delta t_{\text{int}}$ holds for every $b$. The upper bound requires $b+0.2\cdot\mathbb{1}[\rho]\ge0$; the hypothesis $b\ge0$ is stated explicitly. A factor $c>0$ converts months to the unit of $1/\lambda$ (weeks), and the signs are unchanged by $c$.
+
+
 	\section*{Summary}
 	
 	\begin{table}[h]
@@ -501,16 +1074,26 @@
 			12 & \texttt{CBR\_geq\_one} & CBR main result \\
 			13 & \texttt{CBR\_lambda\_invariant\_equal\_time} & CBR sensitivity \\
 			14 & \texttt{CBR\_eq\_one\_iff\_no\_coupling} & CBR special case \\
+			15 & \texttt{CBR\_log\_decomposition} & Chain, Eq.\ A.33 \\
+			16 & \texttt{CBR\_gt\_one\_iff}, \texttt{CBR\_condition10\_strict} & Chain, exact condition \\
+			17 & \texttt{coverageReward\_bounds}, \texttt{consumerReward\_bounds} & Chain, boundedness \\
+			18 & \texttt{bestWithin\_mono} & Chain, budget monotonicity \\
+			19 & \texttt{selection\_mem\_compliant}, \texttt{selection\_theorem\_C1} & Chain, safety \\
+			20 & \texttt{status\_propagation} & Chain, status \\
+			21 & \texttt{chain\_wellTyped} & Chain, well-typedness \\
+			22 & \texttt{CBR\_log\_sensitivity}, \texttt{CBR\_lambda\_monotonicity} & CBR sensitivity \\
+			23 & \texttt{timeToShelf\_bounds}, \texttt{speed\_term\_positive} & Chain, speed term \\
 			\bottomrule
 		\end{tabular}
-		\caption{Complete list of the fourteen machine-checked theorems.}
+		\caption{Complete list of the numbered machine-checked theorems.}
 	\end{table}
 	
 	\subsection*{Scope Limitations, Stated Honestly}
 	
 	\begin{itemize}
 		\item This verification establishes internal mathematical consistency of the model as defined --- it does not constitute empirical validation against real-world FMCG data.
-		\item The sensitivity of CBR to $\lambda$ under \emph{unequal} deployment times ($t_{\text{int}} \neq t_{\text{seq}}$) has not been formally characterised (Theorem 13 covers only the equal-time case).
+		\item The sensitivity of CBR to $\lambda$ under \emph{unequal} deployment times ($t_{\text{int}} \neq t_{\text{seq}}$) is characterised by Theorem 22; Theorem 13 covers the equal-time case.
+		\item Encoders, cosine similarities, the neural policy, the gradient boosting models and the ASP verifier are abstract functions with explicit hypotheses. The theorems hold for any implementation that satisfies those hypotheses, and they say nothing about the quality of a particular implementation.
 		\item Theorem 7's uniqueness result is proven under an explicit differentiability hypothesis, not derived from continuity and the memoryless functional equation alone; the fully general classical characterisation remains unformalised.
 	\end{itemize}
 	
